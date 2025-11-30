@@ -197,9 +197,9 @@ MODEL_CONFIGS = {
     "10M": {"dim": 256, "num_layers": 6, "num_heads": 4, "head_dim": 64, "mlp_dim": 1024},
     "50M": {"dim": 512, "num_layers": 8, "num_heads": 8, "head_dim": 64, "mlp_dim": 2048},
     # SOTA 150M: Deep & Narrow + GQA
-    # dim=576, layers=26 -> ~156M params
-    # GQA: 9 heads, 3 kv_heads (3x reduction)
-    "150M": {"dim": 576, "num_layers": 26, "num_heads": 9, "head_dim": 64, "mlp_dim": 2304, "num_kv_heads": 3},
+    # dim=512, layers=32 -> ~150M params (More memory efficient than 576/26)
+    # GQA: 8 heads, 2 kv_heads (4x reduction)
+    "150M": {"dim": 512, "num_layers": 32, "num_heads": 8, "head_dim": 64, "mlp_dim": 2048, "num_kv_heads": 2},
     "350M": {"dim": 1024, "num_layers": 24, "num_heads": 16, "head_dim": 64, "mlp_dim": 4096},
 }
 

@@ -12,21 +12,18 @@ MAX_TOKENS = 500_000  # Fast shallow run (~10 steps at BS=32, ~30 secs each)
 
 # Experiments to run - WIDER search space, SHALLOWER runs
 EXPERIMENTS = [
-    # Batch size sweep
+    # Batch size sweep (Lowered for A40 with Deep Model)
+    {"batch_size": 16, "lr": 5e-4, "seq_len": 512, "note": "BS16"},
+    {"batch_size": 24, "lr": 5e-4, "seq_len": 512, "note": "BS24"},
     {"batch_size": 32, "lr": 5e-4, "seq_len": 512, "note": "BS32"},
-    {"batch_size": 64, "lr": 5e-4, "seq_len": 512, "note": "BS64"},
-    {"batch_size": 128, "lr": 5e-4, "seq_len": 512, "note": "BS128"},
-    {"batch_size": 256, "lr": 5e-4, "seq_len": 512, "note": "BS256"},
-    {"batch_size": 512, "lr": 5e-4, "seq_len": 512, "note": "BS512 (VRAM test)"},
+    {"batch_size": 48, "lr": 5e-4, "seq_len": 512, "note": "BS48"},
     
-    # Learning rate sweep (best BS from above)
-    {"batch_size": 128, "lr": 3e-4, "seq_len": 512, "note": "LR 3e-4"},
-    {"batch_size": 128, "lr": 1e-3, "seq_len": 512, "note": "LR 1e-3"},
-    {"batch_size": 128, "lr": 2e-3, "seq_len": 512, "note": "LR 2e-3"},
+    # Learning rate sweep (using conservative BS=32)
+    {"batch_size": 32, "lr": 3e-4, "seq_len": 512, "note": "LR 3e-4"},
+    {"batch_size": 32, "lr": 1e-3, "seq_len": 512, "note": "LR 1e-3"},
     
-    # Sequence length (for memory test)
-    {"batch_size": 128, "lr": 5e-4, "seq_len": 1024, "note": "Seq1024"},
-    {"batch_size": 128, "lr": 5e-4, "seq_len": 2048, "note": "Seq2048"},
+    # Sequence length (Lower BS for long seq)
+    {"batch_size": 16, "lr": 5e-4, "seq_len": 1024, "note": "Seq1024"},
 ]
 
 def run_experiment(config: Dict) -> Dict:
