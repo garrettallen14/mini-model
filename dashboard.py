@@ -236,40 +236,42 @@ HTML_TEMPLATE = '''
         }
         .samples-container {
             padding: 24px;
-            background: #0f172a; /* Dark background for code */
+            background: #f8fafc; /* Light background */
             max-height: 600px;
             overflow-y: auto;
         }
         .sample-card {
-            background: #1e293b;
-            border: 1px solid #334155;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
             border-radius: 8px;
             margin-bottom: 20px;
             overflow: hidden;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
         }
         .sample-card:last-child { margin-bottom: 0; }
         .sample-meta {
-            background: #334155;
+            background: #f1f5f9;
             padding: 8px 16px;
             font-family: 'Inter', sans-serif;
             font-size: 0.75em;
             font-weight: 600;
-            color: #94a3b8;
+            color: #64748b;
             text-transform: uppercase;
             letter-spacing: 0.05em;
             display: flex;
             justify-content: space-between;
+            border-bottom: 1px solid #e2e8f0;
         }
         .sample-content {
             padding: 16px;
             font-family: 'IBM Plex Mono', monospace;
             font-size: 0.9em;
             line-height: 1.6;
-            color: #e2e8f0;
+            color: #334155;
             white-space: pre-wrap;
         }
         .prompt-text {
-            color: #60a5fa; /* Blue for prompt */
+            color: #2563eb; /* Blue for prompt */
             font-weight: 600;
         }
     </style>
