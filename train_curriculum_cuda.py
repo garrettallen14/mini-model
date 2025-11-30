@@ -71,13 +71,24 @@ class RotaryEmbedding(nn.Module):
         inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
         self.register_buffer("inv_freq", inv_freq)
         self.max_seq_len = max_seq_len
+        self._cos_cached = None
+        self._sin_cached = None
+        self._seq_len_cached = 0
 
     def forward(self, x, offset: int = 0):
         seq_len = x.shape[1]
-        t = torch.arange(offset, offset + seq_len, device=x.device, dtype=self.inv_freq.dtype)
-        freqs = torch.einsum("i,j->ij", t, self.inv_freq)
-        emb = torch.cat((freqs, freqs), dim=-1)
-        return emb[None, :, None, :]
+        
+        # Cache cos/sin for efficiency
+        if seq_len > self._seq_len_cached:
+            self._seq_len_cached = seq_len
+            t = torch.arange(seq_len, device=x.device, dtype=self.inv_freq.dtype)
+            freqs = torch.outer(t, self.inv_freq)
+            emb = torch.cat((freqs, freqs), dim=-1)
+            # Shape: [1, 1, seq_len, dim] for broadcasting with [batch, heads, seq, dim]
+            self._cos_cached = emb.cos()[None, None, :, :].to(x.dtype)
+            self._sin_cached = emb.sin()[None, None, :, :].to(x.dtype)
+        
+        return self._cos_cached[:, :, :seq_len, :], self._sin_cached[:, :, :seq_len, :]
 
 
 def rotate_half(x):
@@ -110,9 +121,8 @@ class Attention(nn.Module):
         k = self.k_proj(x).view(B, L, self.num_heads, self.head_dim).transpose(1, 2)
         v = self.v_proj(x).view(B, L, self.num_heads, self.head_dim).transpose(1, 2)
         
-        cos = torch.cos(rope_cos)
-        sin = torch.sin(rope_sin)
-        q, k = apply_rotary_pos_emb(q, k, cos, sin)
+        # rope_cos and rope_sin are already cos/sin values
+        q, k = apply_rotary_pos_emb(q, k, rope_cos, rope_sin)
         
         out = F.scaled_dot_product_attention(q, k, v, is_causal=True)
         out = out.transpose(1, 2).contiguous().view(B, L, -1)
@@ -168,8 +178,7 @@ class MiniModel(nn.Module):
 
     def forward(self, x):
         h = self.tok_emb(x)
-        rope_emb = self.rope(h)
-        rope_cos, rope_sin = rope_emb, rope_emb
+        rope_cos, rope_sin = self.rope(h)
         
         for layer in self.layers:
             h = layer(h, rope_cos, rope_sin)
