@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-# Fix hf_transfer issue on RunPod
+# Fix RunPod environment issues
 import os
 os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 """
 🧪 COMPREHENSIVE EXPERIMENTAL SUITE

@@ -38,64 +38,11 @@ class MemoryResult:
     error: Optional[str] = None
 
 
-class CheckpointedBlock(nn.Module):
-    """Transformer block with optional checkpointing."""
-    
-    def __init__(self, dim: int, num_heads: int, use_checkpoint: bool = False):
-        super().__init__()
-        self.use_checkpoint = use_checkpoint
-        self.norm1 = nn.LayerNorm(dim)
-        self.attn = nn.MultiheadAttention(dim, num_heads, batch_first=True)
-        self.norm2 = nn.LayerNorm(dim)
-        self.ffn = nn.Sequential(
-            nn.Linear(dim, dim * 4),
-            nn.GELU(),
-            nn.Linear(dim * 4, dim),
-        )
-    
-    def _forward(self, x, attn_mask):
-        # Attention
-        h = self.norm1(x)
-        h, _ = self.attn(h, h, h, attn_mask=attn_mask, is_causal=True)
-        x = x + h
-        # FFN
-        x = x + self.ffn(self.norm2(x))
-        return x
-    
-    def forward(self, x, attn_mask=None):
-        if self.use_checkpoint and self.training:
-            return torch.utils.checkpoint.checkpoint(
-                self._forward, x, attn_mask, use_reentrant=False
-            )
-        return self._forward(x, attn_mask)
-
-
-class TestModel(nn.Module):
-    """Test model with configurable checkpointing."""
-    
-    def __init__(
-        self, 
-        vocab_size: int = 50257,
-        dim: int = 768,
-        num_heads: int = 12,
-        num_layers: int = 12,
-        use_checkpoint: bool = False,
-    ):
-        super().__init__()
-        self.embed = nn.Embedding(vocab_size, dim)
-        self.layers = nn.ModuleList([
-            CheckpointedBlock(dim, num_heads, use_checkpoint)
-            for _ in range(num_layers)
-        ])
-        self.norm = nn.LayerNorm(dim)
-        self.output = nn.Linear(dim, vocab_size, bias=False)
-        self.output.weight = self.embed.weight
-    
-    def forward(self, x):
-        h = self.embed(x)
-        for layer in self.layers:
-            h = layer(h)
-        return self.output(self.norm(h))
+def create_test_model(use_checkpoint: bool = False):
+    """Create test model using the working MiniModel from profile_cuda."""
+    from profile_cuda import MiniModel, MODEL_CONFIGS
+    config = MODEL_CONFIGS["50M"]
+    return MiniModel(**config)
 
 
 def test_gradient_checkpointing(
@@ -118,7 +65,7 @@ def test_gradient_checkpointing(
         name = "with_checkpoint" if use_ckpt else "no_checkpoint"
         
         try:
-            model = TestModel(use_checkpoint=use_ckpt).cuda()
+            model = create_test_model().cuda()
             optimizer = torch.optim.AdamW(model.parameters(), lr=5e-4)
             scaler = GradScaler('cuda')
             
@@ -205,7 +152,7 @@ def test_gradient_accumulation(
         effective_batch = micro_batch_size * accum_steps
         
         try:
-            model = TestModel(use_checkpoint=True).cuda()
+            model = create_test_model().cuda()
             optimizer = torch.optim.AdamW(model.parameters(), lr=5e-4)
             scaler = GradScaler('cuda')
             
@@ -277,7 +224,7 @@ def test_max_batch_size(seq_len: int = 512) -> Dict:
         torch.cuda.empty_cache()
         
         try:
-            model = TestModel(use_checkpoint=True).cuda()
+            model = create_test_model().cuda()
             optimizer = torch.optim.AdamW(model.parameters(), lr=5e-4)
             scaler = GradScaler('cuda')
             

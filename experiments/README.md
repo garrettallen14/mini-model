@@ -12,12 +12,12 @@ python experiments/run_all.py
 python experiments/run_all.py --quick
 
 # Individual experiments
+python experiments/run_all.py --data
 python experiments/run_all.py --optimizer
 python experiments/run_all.py --lr
 python experiments/run_all.py --memory
 python experiments/run_all.py --precision
 python experiments/run_all.py --kernels
-python experiments/run_all.py --data
 ```
 
 ## Experiments
