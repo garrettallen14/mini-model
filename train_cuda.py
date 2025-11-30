@@ -26,7 +26,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 from tqdm import tqdm
 
 # Optional wandb
@@ -342,7 +342,7 @@ def train(
     )
     
     # Mixed precision
-    scaler = GradScaler()
+    scaler = GradScaler('cuda')
     
     # Calculate steps
     tokens_per_step = batch_size * seq_len
@@ -386,7 +386,7 @@ def train(
             # Forward/backward with mixed precision
             optimizer.zero_grad()
             
-            with autocast():
+            with autocast('cuda'):
                 logits = model(x)
                 loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
             

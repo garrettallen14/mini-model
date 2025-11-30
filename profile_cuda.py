@@ -24,7 +24,7 @@ from typing import Dict, List, Optional, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 
 
 # =============================================================================
@@ -315,7 +315,7 @@ def profile_single_config(
         config = MODEL_CONFIGS[model_size]
         model = MiniModel(**config).cuda()
         optimizer = torch.optim.AdamW(model.parameters(), lr=5e-4)
-        scaler = GradScaler() if use_amp else None
+        scaler = GradScaler('cuda') if use_amp else None
         
         # Dummy data
         x = torch.randint(0, 50257, (batch_size, seq_len), device='cuda')
@@ -327,7 +327,7 @@ def profile_single_config(
         for _ in range(warmup_steps):
             optimizer.zero_grad()
             if use_amp:
-                with autocast():
+                with autocast('cuda'):
                     logits = model(x)
                     loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
                 scaler.scale(loss).backward()
@@ -355,7 +355,7 @@ def profile_single_config(
             # Forward
             fwd_start = time.perf_counter()
             if use_amp:
-                with autocast():
+                with autocast('cuda'):
                     logits = model(x)
                     loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
             else:
@@ -502,7 +502,7 @@ def run_live_training_test(model_size: str, batch_size: int, seq_len: int, num_s
         model = torch.compile(model)
     
     optimizer = torch.optim.AdamW(model.parameters(), lr=5e-4, weight_decay=0.01)
-    scaler = GradScaler()
+    scaler = GradScaler('cuda')
     
     num_params = sum(p.numel() for p in model.parameters())
     print(f"  Parameters: {num_params:,}")
@@ -526,7 +526,7 @@ def run_live_training_test(model_size: str, batch_size: int, seq_len: int, num_s
         
         optimizer.zero_grad()
         
-        with autocast():
+        with autocast('cuda'):
             logits = model(x)
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
         
@@ -549,23 +549,36 @@ def run_live_training_test(model_size: str, batch_size: int, seq_len: int, num_s
     # Summary
     total_time = time.perf_counter() - start_time
     total_tokens = num_steps * tokens_per_step
+    
+    # Calculate steady-state throughput (exclude first step which includes compilation)
+    if num_steps > 10:
+        # Use steps 10+ for steady-state measurement
+        steady_state_tokens = (num_steps - 10) * tokens_per_step
+        steady_state_time = total_time - (time.perf_counter() - start_time) * (10 / num_steps)
+        # Actually, let's just use a simpler approach based on the last steps
+        last_step_time = step_time  # Last step time
+        steady_state_tps = tokens_per_step / last_step_time
+    else:
+        steady_state_tps = total_tokens / total_time
+    
     avg_tokens_per_sec = total_tokens / total_time
     
     print(f"\n  {'─' * 55}")
-    print(f"  Total time:     {total_time:.2f}s")
-    print(f"  Total tokens:   {total_tokens:,}")
-    print(f"  Avg tokens/sec: {avg_tokens_per_sec:,.0f}")
-    print(f"  Final loss:     {losses[-1]:.4f}")
-    print(f"  Peak memory:    {torch.cuda.max_memory_allocated()/1e9:.2f} GB")
+    print(f"  Total time:      {total_time:.2f}s")
+    print(f"  Total tokens:    {total_tokens:,}")
+    print(f"  Avg tokens/sec:  {avg_tokens_per_sec:,.0f} (includes compile)")
+    print(f"  Real tokens/sec: {steady_state_tps:,.0f} ⬅️ steady-state")
+    print(f"  Final loss:      {losses[-1]:.4f}")
+    print(f"  Peak memory:     {torch.cuda.max_memory_allocated()/1e9:.2f} GB")
     
-    # Time estimates
+    # Time estimates using steady-state throughput
     tinystories_tokens = 476_000_000
-    tinystories_hours = tinystories_tokens / avg_tokens_per_sec / 3600
+    tinystories_hours = tinystories_tokens / steady_state_tps / 3600
     
     full_3b_tokens = 3_000_000_000
-    full_3b_hours = full_3b_tokens / avg_tokens_per_sec / 3600
+    full_3b_hours = full_3b_tokens / steady_state_tps / 3600
     
-    print(f"\n  📊 TIME ESTIMATES:")
+    print(f"\n  📊 TIME ESTIMATES (using steady-state {steady_state_tps:,.0f} tok/s):")
     print(f"  TinyStories (476M): {format_time(tinystories_hours * 3600)} (${tinystories_hours * 0.40:.2f} on A40)")
     print(f"  Full 3B curriculum: {format_time(full_3b_hours * 3600)} (${full_3b_hours * 0.40:.2f} on A40)")
     
