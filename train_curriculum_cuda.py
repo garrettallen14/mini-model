@@ -768,6 +768,7 @@ def main():
     parser.add_argument("--keep-last-n", type=int, default=3, help="Number of checkpoints to keep")
     parser.add_argument("--output-dir", default="checkpoints")
     parser.add_argument("--wandb", action="store_true")
+    parser.add_argument("--seed", type=int, default=42)
     
     # Resume
     parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume from")

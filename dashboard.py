@@ -633,7 +633,7 @@ def find_latest_run(base_dir: str = "checkpoints") -> str:
     
     runs = sorted(base.glob("*"), key=lambda x: x.stat().st_mtime, reverse=True)
     for run in runs:
-        if (run / "training.log").exists() or (run / "config.json").exists():
+        if (run / "training.log").exists():
             return str(run)
     
     return str(runs[0]) if runs else None
