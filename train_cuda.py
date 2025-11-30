@@ -285,6 +285,35 @@ def get_lr(step: int, warmup: int, max_steps: int, max_lr: float, min_lr: float)
     return min_lr + (max_lr - min_lr) * 0.5 * (1 + math.cos(math.pi * progress))
 
 
+@torch.no_grad()
+def generate_sample(model, prompt: str = "Once upon a time", max_tokens: int = 50, temperature: float = 0.8):
+    """Generate a sample from the model for monitoring."""
+    import tiktoken
+    enc = tiktoken.get_encoding("gpt2")
+    
+    model.eval()
+    tokens = enc.encode(prompt)
+    x = torch.tensor([tokens], device=next(model.parameters()).device)
+    
+    for _ in range(max_tokens):
+        with autocast('cuda'):
+            logits = model(x)
+        next_logits = logits[0, -1, :] / temperature
+        probs = F.softmax(next_logits, dim=-1)
+        next_token = torch.multinomial(probs, 1)
+        
+        if next_token.item() == enc.eot_token:
+            break
+        x = torch.cat([x, next_token.unsqueeze(0)], dim=1)
+        
+        # Limit context
+        if x.shape[1] > 512:
+            x = x[:, -512:]
+    
+    model.train()
+    return enc.decode(x[0].tolist())
+
+
 def train(
     model_size: str = "150M",
     batch_size: int = 32,
@@ -294,6 +323,7 @@ def train(
     warmup_steps: int = 500,
     max_tokens: Optional[int] = None,
     log_interval: int = 50,
+    eval_interval: int = 1000,
     save_interval: int = 5000,
     output_dir: str = "checkpoints",
     use_wandb: bool = False,
@@ -367,11 +397,41 @@ def train(
             "num_params": num_params,
         })
     
+    # Save training config
+    config = {
+        "model_size": model_size,
+        "batch_size": batch_size,
+        "seq_len": seq_len,
+        "learning_rate": learning_rate,
+        "min_lr": min_lr,
+        "warmup_steps": warmup_steps,
+        "max_steps": max_steps,
+        "total_tokens": total_tokens,
+        "num_params": num_params,
+    }
+    with open(output_path / "config.json", "w") as f:
+        json.dump(config, f, indent=2)
+    
+    # Setup file logging
+    log_file = open(output_path / "training.log", "w")
+    def log(msg):
+        print(msg)
+        log_file.write(msg + "\n")
+        log_file.flush()
+    
+    log(f"Training {model_size} model")
+    log(f"Parameters: {num_params:,}")
+    log(f"Batch size: {batch_size}, Seq len: {seq_len}")
+    log(f"Total tokens: {total_tokens/1e6:.1f}M, Steps: {max_steps:,}")
+    log("-" * 60)
+    
     # Training loop
     model.train()
     step = 0
     tokens_seen = 0
     start_time = time.time()
+    loss_accum = 0.0
+    loss_count = 0
     
     pbar = tqdm(total=max_steps, desc="Training")
     
@@ -396,9 +456,16 @@ def train(
             
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            
+            # Gradient clipping and norm tracking
+            grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            
             scaler.step(optimizer)
             scaler.update()
+            
+            # Track smoothed loss
+            loss_accum += loss.item()
+            loss_count += 1
             
             tokens_seen += tokens_per_step
             step += 1
@@ -408,23 +475,45 @@ def train(
             if step % log_interval == 0:
                 elapsed = time.time() - start_time
                 tokens_per_sec = tokens_seen / elapsed
-                ppl = math.exp(min(loss.item(), 10))
+                eta_sec = (max_steps - step) * (elapsed / step)
+                eta_str = f"{eta_sec/3600:.1f}h" if eta_sec > 3600 else f"{eta_sec/60:.0f}m"
+                
+                avg_loss = loss_accum / loss_count
+                ppl = math.exp(min(avg_loss, 10))
+                gpu_mem = torch.cuda.memory_allocated() / 1e9
+                gpu_mem_peak = torch.cuda.max_memory_allocated() / 1e9
                 
                 pbar.set_postfix({
-                    'loss': f'{loss.item():.3f}',
+                    'loss': f'{avg_loss:.3f}',
                     'ppl': f'{ppl:.1f}',
                     'tok/s': f'{tokens_per_sec:.0f}',
-                    'lr': f'{lr:.2e}',
+                    'eta': eta_str,
                 })
+                
+                # Log to file
+                log_msg = (
+                    f"step={step:>6} | loss={avg_loss:.4f} | ppl={ppl:.1f} | "
+                    f"lr={lr:.2e} | grad={grad_norm:.2f} | tok/s={tokens_per_sec:.0f} | "
+                    f"gpu={gpu_mem:.1f}GB | eta={eta_str}"
+                )
+                log_file.write(log_msg + "\n")
+                log_file.flush()
                 
                 if use_wandb and HAS_WANDB:
                     wandb.log({
-                        "loss": loss.item(),
+                        "loss": avg_loss,
                         "ppl": ppl,
                         "lr": lr,
+                        "grad_norm": grad_norm.item() if hasattr(grad_norm, 'item') else grad_norm,
                         "tokens_per_sec": tokens_per_sec,
                         "tokens": tokens_seen,
+                        "gpu_memory_gb": gpu_mem,
+                        "gpu_memory_peak_gb": gpu_mem_peak,
                     }, step=step)
+                
+                # Reset smoothed loss
+                loss_accum = 0.0
+                loss_count = 0
             
             # Save checkpoint
             if step % save_interval == 0:
@@ -435,8 +524,22 @@ def train(
                     'optimizer_state_dict': optimizer.state_dict(),
                     'loss': loss.item(),
                     'tokens_seen': tokens_seen,
+                    'config': config,
                 }, ckpt_path)
-                print(f"\n  Saved: {ckpt_path}")
+                log(f"  Checkpoint saved: {ckpt_path}")
+            
+            # Generate sample for monitoring
+            if step % eval_interval == 0:
+                try:
+                    sample = generate_sample(model, "Once upon a time", max_tokens=60)
+                    log(f"\n  📝 Sample (step {step}):")
+                    log(f"  {sample[:200]}...")
+                    log("")
+                    
+                    if use_wandb and HAS_WANDB:
+                        wandb.log({"sample": wandb.Html(f"<pre>{sample}</pre>")}, step=step)
+                except Exception as e:
+                    log(f"  Sample generation failed: {e}")
     
     pbar.close()
     
@@ -446,18 +549,26 @@ def train(
         'step': step,
         'model_state_dict': model.state_dict(),
         'tokens_seen': tokens_seen,
+        'config': config,
     }, final_path)
     
     # Summary
     total_time = time.time() - start_time
-    print(f"\n{'='*60}")
-    print("Training Complete!")
-    print(f"{'='*60}")
-    print(f"  Time: {total_time/3600:.2f} hours")
-    print(f"  Tokens: {tokens_seen:,}")
-    print(f"  Tokens/sec: {tokens_seen/total_time:,.0f}")
-    print(f"  Final loss: {loss.item():.4f}")
-    print(f"  Output: {output_path}")
+    final_ppl = math.exp(min(loss.item(), 10))
+    
+    log(f"\n{'='*60}")
+    log("Training Complete!")
+    log(f"{'='*60}")
+    log(f"  Time: {total_time/3600:.2f} hours")
+    log(f"  Tokens: {tokens_seen:,}")
+    log(f"  Tokens/sec: {tokens_seen/total_time:,.0f}")
+    log(f"  Final loss: {loss.item():.4f}")
+    log(f"  Final PPL: {final_ppl:.2f}")
+    log(f"  Output: {output_path}")
+    log(f"  Config: {output_path}/config.json")
+    log(f"  Log: {output_path}/training.log")
+    
+    log_file.close()
     
     if use_wandb and HAS_WANDB:
         wandb.finish()
@@ -490,6 +601,7 @@ def main():
     
     # Logging
     parser.add_argument("--log-interval", type=int, default=50)
+    parser.add_argument("--eval-interval", type=int, default=1000, help="Generate sample every N steps")
     parser.add_argument("--save-interval", type=int, default=5000)
     parser.add_argument("--output-dir", default="checkpoints")
     parser.add_argument("--wandb", action="store_true")
@@ -512,6 +624,7 @@ def main():
         warmup_steps=args.warmup,
         max_tokens=args.max_tokens,
         log_interval=args.log_interval,
+        eval_interval=args.eval_interval,
         save_interval=args.save_interval,
         output_dir=args.output_dir,
         use_wandb=args.wandb,
