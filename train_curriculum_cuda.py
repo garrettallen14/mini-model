@@ -201,12 +201,21 @@ CURRICULUM_DATASETS = {
         "streaming": False,
         "tokens_estimate": 476_000_000,
     },
-    "cosmopedia": {
+    "cosmopedia_stories": {
         "hf_path": "HuggingFaceTB/cosmopedia",
+        "name": "stories",  # Config name required
         "text_col": "text", 
         "split": "train",
         "streaming": True,
-        "tokens_estimate": 274_000_000,
+        "tokens_estimate": 150_000_000,
+    },
+    "cosmopedia_wikihow": {
+        "hf_path": "HuggingFaceTB/cosmopedia",
+        "name": "wikihow",
+        "text_col": "text", 
+        "split": "train",
+        "streaming": True,
+        "tokens_estimate": 100_000_000,
     },
     "openwebmath": {
         "hf_path": "open-web-math/open-web-math",
@@ -235,9 +244,9 @@ CURRICULUM_DATASETS = {
 # Curriculum phases
 CURRICULUM_PHASES = {
     # tokens_seen: {dataset: weight}
-    0: {"tinystories": 0.5, "cosmopedia": 0.5},                                    # Phase 1
-    1_000_000_000: {"tinystories": 0.2, "cosmopedia": 0.3, "openwebmath": 0.25, "starcoder_python": 0.25},  # Phase 2
-    2_000_000_000: {"cosmopedia": 0.2, "openwebmath": 0.3, "starcoder_python": 0.3, "metamathqa": 0.2},     # Phase 3
+    0: {"tinystories": 0.6, "cosmopedia_stories": 0.4},                            # Phase 1: Foundation
+    1_000_000_000: {"tinystories": 0.2, "cosmopedia_stories": 0.2, "openwebmath": 0.3, "starcoder_python": 0.3},  # Phase 2: Add code/math
+    2_000_000_000: {"cosmopedia_wikihow": 0.2, "openwebmath": 0.3, "starcoder_python": 0.3, "metamathqa": 0.2},   # Phase 3: Full mix
 }
 
 
@@ -248,6 +257,63 @@ def get_curriculum_weights(tokens_seen: int) -> Dict[str, float]:
         if tokens_seen >= threshold:
             return CURRICULUM_PHASES[threshold]
     return CURRICULUM_PHASES[0]
+
+
+def validate_datasets():
+    """Validate all curriculum datasets are accessible."""
+    from datasets import load_dataset
+    
+    print("\n" + "=" * 60)
+    print("🔍 VALIDATING DATASETS")
+    print("=" * 60)
+    
+    # Get all unique datasets from all phases
+    all_datasets = set()
+    for phase_weights in CURRICULUM_PHASES.values():
+        all_datasets.update(phase_weights.keys())
+    
+    results = {}
+    for name in sorted(all_datasets):
+        config = CURRICULUM_DATASETS[name]
+        print(f"\n  Checking {name}...")
+        
+        kwargs = {
+            "path": config["hf_path"],
+            "split": config["split"],
+            "streaming": True,  # Always stream for validation
+        }
+        if "data_dir" in config:
+            kwargs["data_dir"] = config["data_dir"]
+        if "name" in config:
+            kwargs["name"] = config["name"]
+        
+        try:
+            ds = load_dataset(**kwargs)
+            # Try to read one example
+            example = next(iter(ds))
+            text_col = config["text_col"]
+            
+            if text_col in example:
+                text = example[text_col][:100] if example[text_col] else "(empty)"
+                print(f"    ✓ OK - Sample: {text}...")
+                results[name] = True
+            else:
+                print(f"    ✗ Missing column '{text_col}'")
+                results[name] = False
+        except Exception as e:
+            print(f"    ✗ Error: {str(e)[:80]}")
+            results[name] = False
+    
+    print("\n" + "-" * 60)
+    ok = all(results.values())
+    if ok:
+        print("✓ All datasets validated!")
+    else:
+        failed = [k for k, v in results.items() if not v]
+        print(f"✗ Failed datasets: {failed}")
+    print("-" * 60 + "\n")
+    
+    return ok
 
 
 class CurriculumDataset(IterableDataset):
@@ -281,6 +347,8 @@ class CurriculumDataset(IterableDataset):
         }
         if "data_dir" in config:
             kwargs["data_dir"] = config["data_dir"]
+        if "name" in config:
+            kwargs["name"] = config["name"]
         
         print(f"  Loading {name}...")
         self.datasets[name] = load_dataset(**kwargs)
@@ -666,7 +734,20 @@ def main():
     # Performance
     parser.add_argument("--no-compile", action="store_true")
     
+    # Validation
+    parser.add_argument("--validate", action="store_true", help="Validate all datasets before training")
+    parser.add_argument("--validate-only", action="store_true", help="Only validate datasets, don't train")
+    
     args = parser.parse_args()
+    
+    # Validate datasets first
+    if args.validate or args.validate_only:
+        ok = validate_datasets()
+        if args.validate_only:
+            return
+        if not ok:
+            print("Dataset validation failed. Fix issues or run without --validate to skip.")
+            return
     
     train_curriculum(
         model_size=args.size,
