@@ -225,11 +225,11 @@ CURRICULUM_DATASETS = {
         "tokens_estimate": 800_000_000,
     },
     "python_code": {
-        "hf_path": "flytech/python-codes-25k",
-        "text_col": "code",
+        "hf_path": "codeparrot/codeparrot-clean-train",
+        "text_col": "content",
         "split": "train",
-        "streaming": False,
-        "tokens_estimate": 50_000_000,
+        "streaming": True,
+        "tokens_estimate": 500_000_000,
     },
     "metamathqa": {
         "hf_path": "meta-math/MetaMathQA",
