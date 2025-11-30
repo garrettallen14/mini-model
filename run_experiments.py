@@ -8,7 +8,7 @@ from typing import List, Dict
 PYTHON_EXEC = sys.executable # Use the current python interpreter
 SCRIPT = "train_curriculum_cuda.py"
 MODEL_SIZE = "150M"
-MAX_TOKENS = 500_000  # Fast shallow run (~10 steps at BS=32, ~30 secs each)
+MAX_TOKENS = 100_000  # Fast shallow run (~10 steps at BS=32, ~30 secs each)
 
 # Experiments to run - WIDER search space, SHALLOWER runs
 EXPERIMENTS = [

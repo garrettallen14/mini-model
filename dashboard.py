@@ -209,50 +209,68 @@ HTML_TEMPLATE = '''
             height: 240px;
         }
         
-        /* Samples */
+        /* Samples - Enhanced */
         .samples-section {
             background: #fff;
             border: 1px solid #e5e5e5;
-            border-radius: 8px;
-            padding: 20px 24px;
+            border-radius: 12px;
+            padding: 0;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        }
+        .samples-header-bar {
+            padding: 16px 24px;
+            border-bottom: 1px solid #e5e5e5;
+            background: #f8fafc;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
         .samples-title {
-            font-size: 0.875em;
-            font-weight: 500;
-            color: #374151;
-            margin-bottom: 16px;
+            font-size: 0.95em;
+            font-weight: 600;
+            color: #1e293b;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        .sample {
-            background: #f9fafb;
-            border: 1px solid #e5e5e5;
-            border-radius: 6px;
-            padding: 16px;
-            margin-bottom: 12px;
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 0.8125em;
-            line-height: 1.6;
-            color: #374151;
-            white-space: pre-wrap;
+        .samples-container {
+            padding: 24px;
+            background: #0f172a; /* Dark background for code */
+            max-height: 600px;
+            overflow-y: auto;
         }
-        .sample:last-child { margin-bottom: 0; }
-        .sample-header {
+        .sample-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+        .sample-card:last-child { margin-bottom: 0; }
+        .sample-meta {
+            background: #334155;
+            padding: 8px 16px;
             font-family: 'Inter', sans-serif;
             font-size: 0.75em;
-            font-weight: 500;
-            color: #6b7280;
-            margin-bottom: 8px;
+            font-weight: 600;
+            color: #94a3b8;
             text-transform: uppercase;
             letter-spacing: 0.05em;
+            display: flex;
+            justify-content: space-between;
         }
-        
-        /* Responsive */
-        @media (max-width: 1200px) {
-            .metrics-grid { grid-template-columns: repeat(3, 1fr); }
+        .sample-content {
+            padding: 16px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.9em;
+            line-height: 1.6;
+            color: #e2e8f0;
+            white-space: pre-wrap;
         }
-        @media (max-width: 768px) {
-            body { padding: 16px; }
-            .charts-grid { grid-template-columns: 1fr; }
-            .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+        .prompt-text {
+            color: #60a5fa; /* Blue for prompt */
+            font-weight: 600;
         }
     </style>
 </head>
@@ -339,8 +357,13 @@ HTML_TEMPLATE = '''
         </div>
         
         <div class="samples-section">
-            <div class="samples-title">Generated Samples</div>
-            <div id="samples"><span style="color: #9ca3af;">Samples will appear after step 5000</span></div>
+            <div class="samples-header-bar">
+                <span class="samples-title">✨ Generated Samples</span>
+                <span style="font-size: 0.8em; color: #64748b;">Updates every 500 steps</span>
+            </div>
+            <div class="samples-container" id="samples">
+                <div style="color: #64748b; text-align: center; padding: 40px;">Waiting for first samples...</div>
+            </div>
         </div>
     </div>
     
@@ -438,9 +461,24 @@ HTML_TEMPLATE = '''
                 
                 // Update samples
                 if (data.samples && data.samples.length > 0) {
-                    document.getElementById('samples').innerHTML = data.samples.slice(-3).map(s => 
-                        `<div class="sample"><div class="sample-header">${s.header}</div>${s.text}</div>`
-                    ).join('');
+                    // Take last 6 samples (2 sets of 3 prompts)
+                    const recentSamples = data.samples.slice(-6).reverse();
+                    
+                    document.getElementById('samples').innerHTML = recentSamples.map(s => {
+                        // Highlight the prompt part if possible (simple heuristic)
+                        let content = s.text;
+                        const promptMatch = content.match(/^(.*?)(?=\s)/); // Try to find first word/sentence
+                        
+                        return `
+                        <div class="sample-card">
+                            <div class="sample-meta">
+                                <span>${s.header}</span>
+                                <span>MODEL OUTPUT</span>
+                            </div>
+                            <div class="sample-content">${content}</div>
+                        </div>
+                        `;
+                    }).join('');
                 }
                 
             } catch (e) {

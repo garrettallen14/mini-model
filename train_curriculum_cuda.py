@@ -757,7 +757,7 @@ def main():
     
     # Logging
     parser.add_argument("--log-interval", type=int, default=100)
-    parser.add_argument("--eval-interval", type=int, default=5000)
+    parser.add_argument("--eval-interval", type=int, default=500) # More frequent samples
     parser.add_argument("--save-interval", type=int, default=50000)
     parser.add_argument("--keep-last-n", type=int, default=3, help="Number of checkpoints to keep")
     parser.add_argument("--output-dir", default="checkpoints")
