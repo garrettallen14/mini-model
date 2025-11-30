@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Fix hf_transfer issue on RunPod
+import os
+os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
+
 """
 PyTorch/CUDA training script for mini-model.
 
@@ -460,18 +464,43 @@ def train(
 
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Train mini-model on CUDA")
+    
+    # Model
     parser.add_argument("--size", default="150M", choices=["10M", "50M", "150M", "350M"])
+    
+    # Training
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--seq-len", type=int, default=512)
+    parser.add_argument("--grad-accum", type=int, default=1, help="Gradient accumulation steps")
+    
+    # Optimizer
+    parser.add_argument("--optimizer", default="adamw", 
+                       choices=["adamw", "adam", "sgd", "lion", "adafactor"])
     parser.add_argument("--lr", type=float, default=5e-4)
+    parser.add_argument("--min-lr", type=float, default=1e-6)
+    parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--warmup", type=int, default=500)
+    parser.add_argument("--beta1", type=float, default=0.9)
+    parser.add_argument("--beta2", type=float, default=0.95)
+    
+    # Training limits
     parser.add_argument("--max-tokens", type=int, default=None)
+    parser.add_argument("--max-steps", type=int, default=None)
+    
+    # Logging
     parser.add_argument("--log-interval", type=int, default=50)
     parser.add_argument("--save-interval", type=int, default=5000)
     parser.add_argument("--output-dir", default="checkpoints")
     parser.add_argument("--wandb", action="store_true")
+    
+    # Performance
     parser.add_argument("--no-compile", action="store_true")
+    parser.add_argument("--dtype", default="bf16", choices=["fp32", "fp16", "bf16"])
+    parser.add_argument("--num-workers", type=int, default=4)
+    
+    # Resume
+    parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint")
     
     args = parser.parse_args()
     

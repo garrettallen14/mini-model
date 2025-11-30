@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Fix hf_transfer issue on RunPod
+import os
+os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
+
 """
 🧪 COMPREHENSIVE EXPERIMENTAL SUITE
 

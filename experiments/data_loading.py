@@ -185,6 +185,10 @@ def test_tokenization():
     
     # Test transformers
     try:
+        # Disable hf_transfer to avoid issues
+        import os
+        os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
+        
         from transformers import GPT2TokenizerFast
         tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
         
@@ -199,8 +203,8 @@ def test_tokenization():
             "tokens_per_sec": len(tokens) / hf_time,
         }
         print(f"  transformers: {hf_time:.2f}s, {len(tokens)/hf_time:,.0f} tok/s")
-    except ImportError:
-        print("  transformers: not installed")
+    except Exception as e:
+        print(f"  transformers: skipped ({str(e)[:50]})")
     
     if "tiktoken" in results and "transformers" in results:
         speedup = results["tiktoken"]["tokens_per_sec"] / results["transformers"]["tokens_per_sec"]
