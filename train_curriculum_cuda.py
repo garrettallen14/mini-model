@@ -509,6 +509,25 @@ def get_gpu_metrics():
     except:
         return 0, 0
 
+def get_grad_norm(model):
+    """Calculate gradient norm."""
+    total_norm = 0.0
+    for p in model.parameters():
+        if p.grad is not None:
+            param_norm = p.grad.data.norm(2)
+            total_norm += param_norm.item() ** 2
+    return total_norm ** 0.5
+
+def get_eta(step, max_steps, start_time):
+    """Estimate time remaining."""
+    if step == 0:
+        return "--"
+    elapsed = time.time() - start_time
+    steps_per_sec = step / elapsed
+    remaining_steps = max_steps - step
+    eta_seconds = remaining_steps / steps_per_sec if steps_per_sec > 0 else 0
+    return f"{eta_seconds / 3600:.1f}h"
+
 def train_curriculum(
     model_size: str = "150M",
     batch_size: int = 32,
@@ -558,11 +577,6 @@ def train_curriculum(
         model.load_state_dict(checkpoint['model_state_dict'])
         start_tokens = checkpoint.get('tokens_seen', 0)
         print(f"Resuming from {start_tokens:,} tokens")
-    
-    # Compile
-    if compile_model and hasattr(torch, 'compile'):
-        print("Compiling model...")
-        model = torch.compile(model)
     
     # Dataset
     print("\nSetting up curriculum dataset...")
@@ -616,6 +630,7 @@ def train_curriculum(
     
     # Training loop
     model.train()
+    start_time = time.time()
     
     # Training Loop
     micro_step = 0
@@ -711,10 +726,11 @@ def train_curriculum(
                     # Generate from a few prompts
                     prompts = ["Once upon a time", "The capital of France is", "def fibonacci(n):"]
                     for p in prompts:
-                        ctx = torch.tensor(dataset.enc.encode(p), dtype=torch.long, device='cuda').unsqueeze(0)
-                        out = model.generate(ctx, max_new_tokens=50, temperature=0.8)
-                        decoded = dataset.enc.decode(out[0].tolist())
-                        log(f"   Prompt: {p}\n   Output: {decoded}\n")
+                        try:
+                            sample = generate_sample(model, p, max_tokens=50, temperature=0.8)
+                            log(f"   Prompt: {p}\n   Output: {sample}\n")
+                        except Exception as e:
+                            log(f"   Sample generation failed: {e}")
                 model.train()
 
     log("Training complete!")
@@ -807,7 +823,6 @@ def main():
         use_wandb=args.wandb,
         seed=args.seed,
         accumulation_steps=args.accum_steps,
-        compile_model=not args.no_compile,
     )
 
 
