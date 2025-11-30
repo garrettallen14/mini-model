@@ -1,0 +1,18 @@
+# PyTorch (already installed on RunPod, but pin version)
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Data
+datasets>=2.15.0
+transformers>=4.35.0
+tiktoken>=0.5.0
+huggingface-hub>=0.19.0
+
+# Training utilities
+tqdm>=4.66.0
+wandb>=0.16.0  # Optional: for logging
+accelerate>=0.25.0  # For multi-GPU if needed
+
+# Evaluation
+numpy>=1.24.0
+scipy>=1.11.0
