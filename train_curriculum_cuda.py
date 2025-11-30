@@ -103,26 +103,32 @@ def apply_rotary_pos_emb(q, k, cos, sin):
 
 
 class Attention(nn.Module):
-    def __init__(self, dim: int, num_heads: int, head_dim: int = 64):
+    def __init__(self, dim: int, num_heads: int, head_dim: int = 64, num_kv_heads: Optional[int] = None):
         super().__init__()
         self.num_heads = num_heads
+        self.num_kv_heads = num_kv_heads if num_kv_heads is not None else num_heads
         self.head_dim = head_dim
-        self.scale = head_dim ** -0.5
+        self.n_rep = self.num_heads // self.num_kv_heads
         
         self.q_proj = nn.Linear(dim, num_heads * head_dim, bias=False)
-        self.k_proj = nn.Linear(dim, num_heads * head_dim, bias=False)
-        self.v_proj = nn.Linear(dim, num_heads * head_dim, bias=False)
+        self.k_proj = nn.Linear(dim, self.num_kv_heads * head_dim, bias=False)
+        self.v_proj = nn.Linear(dim, self.num_kv_heads * head_dim, bias=False)
         self.o_proj = nn.Linear(num_heads * head_dim, dim, bias=False)
 
     def forward(self, x, rope_cos, rope_sin):
         B, L, _ = x.shape
         
         q = self.q_proj(x).view(B, L, self.num_heads, self.head_dim).transpose(1, 2)
-        k = self.k_proj(x).view(B, L, self.num_heads, self.head_dim).transpose(1, 2)
-        v = self.v_proj(x).view(B, L, self.num_heads, self.head_dim).transpose(1, 2)
+        k = self.k_proj(x).view(B, L, self.num_kv_heads, self.head_dim).transpose(1, 2)
+        v = self.v_proj(x).view(B, L, self.num_kv_heads, self.head_dim).transpose(1, 2)
         
         # rope_cos and rope_sin are already cos/sin values
         q, k = apply_rotary_pos_emb(q, k, rope_cos, rope_sin)
+        
+        # GQA: Repeat K/V if needed
+        if self.n_rep > 1:
+            k = k[:, :, None, :, :].expand(B, self.num_kv_heads, self.n_rep, L, self.head_dim).reshape(B, self.num_heads, L, self.head_dim)
+            v = v[:, :, None, :, :].expand(B, self.num_kv_heads, self.n_rep, L, self.head_dim).reshape(B, self.num_heads, L, self.head_dim)
         
         out = F.scaled_dot_product_attention(q, k, v, is_causal=True)
         out = out.transpose(1, 2).contiguous().view(B, L, -1)
@@ -141,10 +147,10 @@ class MLP(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, dim: int, num_heads: int, head_dim: int, mlp_dim: int):
+    def __init__(self, dim: int, num_heads: int, head_dim: int, mlp_dim: int, num_kv_heads: Optional[int] = None):
         super().__init__()
         self.attn_norm = RMSNorm(dim)
-        self.attn = Attention(dim, num_heads, head_dim)
+        self.attn = Attention(dim, num_heads, head_dim, num_kv_heads=num_kv_heads)
         self.mlp_norm = RMSNorm(dim)
         self.mlp = MLP(dim, mlp_dim)
 
@@ -164,12 +170,13 @@ class MiniModel(nn.Module):
         head_dim: int = 64,
         mlp_dim: int = 3072,
         max_seq_len: int = 2048,
+        num_kv_heads: Optional[int] = None,
     ):
         super().__init__()
         self.tok_emb = nn.Embedding(vocab_size, dim)
         self.rope = RotaryEmbedding(head_dim, max_seq_len)
         self.layers = nn.ModuleList([
-            TransformerBlock(dim, num_heads, head_dim, mlp_dim)
+            TransformerBlock(dim, num_heads, head_dim, mlp_dim, num_kv_heads=num_kv_heads)
             for _ in range(num_layers)
         ])
         self.norm = RMSNorm(dim)
@@ -189,7 +196,10 @@ class MiniModel(nn.Module):
 MODEL_CONFIGS = {
     "10M": {"dim": 256, "num_layers": 6, "num_heads": 4, "head_dim": 64, "mlp_dim": 1024},
     "50M": {"dim": 512, "num_layers": 8, "num_heads": 8, "head_dim": 64, "mlp_dim": 2048},
-    "150M": {"dim": 768, "num_layers": 12, "num_heads": 12, "head_dim": 64, "mlp_dim": 3072},
+    # SOTA 150M: Deep & Narrow + GQA
+    # dim=576, layers=26 -> ~156M params
+    # GQA: 9 heads, 3 kv_heads (3x reduction)
+    "150M": {"dim": 576, "num_layers": 26, "num_heads": 9, "head_dim": 64, "mlp_dim": 2304, "num_kv_heads": 3},
     "350M": {"dim": 1024, "num_layers": 24, "num_heads": 16, "head_dim": 64, "mlp_dim": 4096},
 }
 
@@ -403,7 +413,8 @@ class CurriculumDataset(IterableDataset):
                 text = self._get_text(dataset_name)
                 
                 if text:
-                    tokens = self.enc.encode(text)
+                    # Fix: Ignore disallowed special tokens to prevent crashes on web data
+                    tokens = self.enc.encode(text, disallowed_special=())
                     buffer.extend(tokens)
                     buffer.append(self.enc.eot_token)
             
@@ -441,10 +452,14 @@ class TokenizedDataset(Dataset):
 # =============================================================================
 
 def get_lr(step: int, warmup: int, max_steps: int, max_lr: float, min_lr: float) -> float:
+    # Linear Warmup
     if step < warmup:
         return max_lr * (step + 1) / warmup
+    
+    # Linear Decay to Zero (D2Z) - SOTA for fixed horizon
+    # Note: We respect min_lr if provided, but D2Z implies min_lr=0
     progress = (step - warmup) / max(1, max_steps - warmup)
-    return min_lr + (max_lr - min_lr) * 0.5 * (1 + math.cos(math.pi * progress))
+    return max_lr - (max_lr - min_lr) * progress
 
 
 @torch.no_grad()
