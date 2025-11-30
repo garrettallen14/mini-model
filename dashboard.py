@@ -325,6 +325,10 @@ HTML_TEMPLATE = '''
                 <div class="metric-label">GPU Memory</div>
                 <div class="metric-value" id="gpuMem">—</div>
             </div>
+            <div class="metric-card">
+                <div class="metric-label">GPU Util</div>
+                <div class="metric-value" id="gpuUtil">—</div>
+            </div>
         </div>
         
         <div class="charts-grid">
@@ -351,10 +355,10 @@ HTML_TEMPLATE = '''
             </div>
             <div class="chart-card">
                 <div class="chart-header">
-                    <span class="chart-title">Gradient Norm</span>
+                    <span class="chart-title">GPU Utilization (%)</span>
                     <span class="chart-hint">Drag to zoom • Double-click to reset</span>
                 </div>
-                <div class="chart-container" id="gradChart"></div>
+                <div class="chart-container" id="utilChart"></div>
             </div>
         </div>
         
@@ -400,7 +404,7 @@ HTML_TEMPLATE = '''
         Plotly.newPlot('lossChart', [{x: [], y: [], type: 'scatter', mode: 'lines', line: {color: '#2563eb', width: 2}}], layout, config);
         Plotly.newPlot('pplChart', [{x: [], y: [], type: 'scatter', mode: 'lines', line: {color: '#059669', width: 2}}], layout, config);
         Plotly.newPlot('tokChart', [{x: [], y: [], type: 'scatter', mode: 'lines', line: {color: '#d97706', width: 2}}], layout, config);
-        Plotly.newPlot('gradChart', [{x: [], y: [], type: 'scatter', mode: 'lines', line: {color: '#dc2626', width: 2}}], layout, config);
+        Plotly.newPlot('utilChart', [{x: [], y: [], type: 'scatter', mode: 'lines', line: {color: '#8b5cf6', width: 2}}], layout, config);
         
         async function updateData() {
             try {
@@ -427,6 +431,7 @@ HTML_TEMPLATE = '''
                     document.getElementById('ppl').textContent = data.ppls[last].toFixed(1);
                     document.getElementById('tokS').textContent = Math.round(data.tok_s[last]).toLocaleString();
                     document.getElementById('gpuMem').textContent = data.gpu_mem[last].toFixed(1) + ' GB';
+                    document.getElementById('gpuUtil').textContent = (data.gpu_utils ? data.gpu_utils[last] : 0) + '%';
                     
                     if (data.lrs && data.lrs[last]) {
                         document.getElementById('lr').textContent = data.lrs[last];
@@ -458,7 +463,7 @@ HTML_TEMPLATE = '''
                     Plotly.react('lossChart', [{x: data.steps, y: data.losses, type: 'scatter', mode: 'lines', line: {color: '#2563eb', width: 2}, hovertemplate: 'Step %{x}<br>Loss: %{y:.4f}<extra></extra>'}], layout, config);
                     Plotly.react('pplChart', [{x: data.steps, y: data.ppls, type: 'scatter', mode: 'lines', line: {color: '#059669', width: 2}, hovertemplate: 'Step %{x}<br>PPL: %{y:.2f}<extra></extra>'}], layout, config);
                     Plotly.react('tokChart', [{x: data.steps, y: data.tok_s, type: 'scatter', mode: 'lines', line: {color: '#d97706', width: 2}, hovertemplate: 'Step %{x}<br>Tok/s: %{y:,.0f}<extra></extra>'}], layout, config);
-                    Plotly.react('gradChart', [{x: data.steps, y: data.grad_norms, type: 'scatter', mode: 'lines', line: {color: '#dc2626', width: 2}, hovertemplate: 'Step %{x}<br>Grad: %{y:.3f}<extra></extra>'}], layout, config);
+                    Plotly.react('utilChart', [{x: data.steps, y: data.gpu_utils || [], type: 'scatter', mode: 'lines', line: {color: '#8b5cf6', width: 2}, hovertemplate: 'Step %{x}<br>Util: %{y}%<extra></extra>'}], layout, config);
                 }
                 
                 // Update samples
@@ -498,8 +503,8 @@ HTML_TEMPLATE = '''
 
 def parse_log_line(line: str) -> dict:
     """Parse a log line into metrics."""
-    # Match: step=  1000 | tokens=0.03B | loss=2.34 | ppl=10.4 | lr=5.00e-04 | grad=0.45 | tok/s=50000 | gpu=18.2GB | eta=2.1h | phase=tin+cos
-    pattern = r'step=\s*(\d+).*?(?:tokens=(\d+\.?\d*)B)?.*?loss=(\d+\.?\d+).*?ppl=(\d+\.?\d+).*?lr=(\S+).*?grad=(\d+\.?\d+).*?tok/s=(\d+).*?gpu=(\d+\.?\d+).*?eta=(\S+)(?:.*?phase=(\S+))?'
+    # Match: step=  1000 | tokens=0.03B | loss=2.34 | ppl=10.4 | lr=5.00e-04 | grad=0.45 | tok/s=50000 | gpu_mem=18.2GB | gpu_util=98% | eta=2.1h | phase=tin+cos
+    pattern = r'step=\s*(\d+).*?(?:tokens=(\d+\.?\d*)B)?.*?loss=(\d+\.?\d+).*?ppl=(\d+\.?\d+).*?lr=(\S+).*?grad=(\d+\.?\d+).*?tok/s=(\d+).*?gpu_mem=(\d+\.?\d+)GB.*?gpu_util=(\d+)%.*?eta=(\S+)(?:.*?phase=(\S+))?'
     
     match = re.search(pattern, line)
     if match:
@@ -512,8 +517,9 @@ def parse_log_line(line: str) -> dict:
             "grad_norm": float(match.group(6)),
             "tok_s": int(match.group(7)),
             "gpu_mem": float(match.group(8)),
-            "eta": match.group(9),
-            "phase": match.group(10) if match.group(10) else "",
+            "gpu_util": int(match.group(9)),
+            "eta": match.group(10),
+            "phase": match.group(11) if match.group(11) else "",
         }
     return None
 
@@ -560,7 +566,7 @@ def watch_log_file():
             with open(log_file, 'r') as f:
                 lines = f.readlines()
             
-            steps, losses, ppls, lrs, tok_s, tokens_b, grad_norms, gpu_mem = [], [], [], [], [], [], [], []
+            steps, losses, ppls, lrs, tok_s, tokens_b, grad_norms, gpu_mem, gpu_utils = [], [], [], [], [], [], [], [], []
             samples = []
             current_phase = ""
             eta = ""
@@ -576,6 +582,7 @@ def watch_log_file():
                     tokens_b.append(metrics["tokens_b"])
                     grad_norms.append(metrics["grad_norm"])
                     gpu_mem.append(metrics["gpu_mem"])
+                    gpu_utils.append(metrics["gpu_util"])
                     eta = metrics["eta"]
                     if metrics["phase"]:
                         current_phase = metrics["phase"]
@@ -595,6 +602,7 @@ def watch_log_file():
                 "tokens_b": tokens_b,
                 "grad_norms": grad_norms,
                 "gpu_mem": gpu_mem,
+                "gpu_utils": gpu_utils,
                 "samples": samples,
                 "eta": eta,
                 "current_phase": current_phase,

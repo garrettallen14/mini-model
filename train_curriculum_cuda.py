@@ -35,12 +35,21 @@ import random
 
 import numpy as np
 import tiktoken
+from datasets import load_dataset
+import pynvml # For GPU metrics
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader, IterableDataset
 from torch.amp import autocast, GradScaler
 from tqdm import tqdm
+
+# Initialize NVML
+try:
+    pynvml.nvmlInit()
+    HAS_NVML = True
+except:
+    HAS_NVML = False
 
 # Optional wandb
 try:
@@ -489,6 +498,17 @@ def generate_sample(model, prompt: str = "Once upon a time", max_tokens: int = 5
     return enc.decode(x[0].tolist())
 
 
+def get_gpu_metrics():
+    if not HAS_NVML:
+        return 0, 0
+    try:
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+        mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        return util.gpu, mem.used / 1e9
+    except:
+        return 0, 0
+
 def train_curriculum(
     model_size: str = "150M",
     batch_size: int = 32,
@@ -504,8 +524,12 @@ def train_curriculum(
     output_dir: str = "checkpoints",
     resume: Optional[str] = None,
     use_wandb: bool = False,
-    compile_model: bool = True,
+    seed: int = 42,
+    accumulation_steps: int = 1,
 ):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    np.random.seed(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
     
@@ -545,14 +569,15 @@ def train_curriculum(
     print(f"Current phase: {get_curriculum_weights(start_tokens)}")
     
     dataset = CurriculumDataset(seq_len=seq_len, start_tokens=start_tokens)
-    dataloader = DataLoader(dataset, batch_size=batch_size, num_workers=0)
+    # Optimization: Use 4 workers to prefetch data and prevent GPU starvation
+    dataloader = DataLoader(dataset, batch_size=batch_size, num_workers=4, pin_memory=True)
     
     # Optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.01, betas=(0.9, 0.95))
     scaler = GradScaler('cuda')
     
     # Training stats
-    tokens_per_step = batch_size * seq_len
+    tokens_per_step = batch_size * seq_len * accumulation_steps
     max_steps = max_tokens // tokens_per_step
     
     print(f"\n{'='*60}")
@@ -560,7 +585,8 @@ def train_curriculum(
     print(f"{'='*60}")
     print(f"  Model: {model_size} ({num_params/1e6:.1f}M params)")
     print(f"  Target: {max_tokens/1e9:.1f}B tokens ({max_steps:,} steps)")
-    print(f"  Batch: {batch_size} x {seq_len} = {tokens_per_step:,} tokens/step")
+    print(f"  Batch: {batch_size} x {seq_len} = {batch_size * seq_len:,} tokens/micro-step")
+    print(f"  Accumulation: {accumulation_steps} micro-steps = {tokens_per_step:,} tokens/step")
     print(f"  Starting from: {start_tokens/1e6:.1f}M tokens")
     print(f"{'='*60}")
     
@@ -571,6 +597,7 @@ def train_curriculum(
         "seq_len": seq_len,
         "learning_rate": learning_rate,
         "max_tokens": max_tokens,
+        "accumulation_steps": accumulation_steps,
         "curriculum_phases": {str(k): v for k, v in CURRICULUM_PHASES.items()},
     }
     with open(output_path / "config.json", "w") as f:
@@ -589,130 +616,108 @@ def train_curriculum(
     
     # Training loop
     model.train()
-    tokens_seen = start_tokens
-    step = 0
-    start_time = time.time()
-    loss_accum = 0.0
-    loss_count = 0
     
-    pbar = tqdm(total=max_steps, desc="Training", initial=start_step)
+    # Training Loop
+    micro_step = 0
+    step = start_step
+    tokens_seen = start_tokens
+    optimizer.zero_grad(set_to_none=True)
     
     for x, y in dataloader:
-        if tokens_seen >= max_tokens:
+        if step >= max_steps:
             break
+            
+        t0 = time.time()
         
         x, y = x.to(device), y.to(device)
-        
-        # LR schedule
-        lr = get_lr(step, warmup_steps, max_steps, learning_rate, min_lr)
-        for pg in optimizer.param_groups:
-            pg['lr'] = lr
-        
-        # Forward/backward
-        optimizer.zero_grad()
-        
-        with autocast('cuda'):
+
+        # Forward
+        with torch.amp.autocast('cuda', dtype=torch.bfloat16):
             logits = model(x)
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
+            
+        # Backward (Accumulate)
+        scaler.scale(loss / accumulation_steps).backward()
         
-        scaler.scale(loss).backward()
-        scaler.unscale_(optimizer)
-        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        scaler.step(optimizer)
-        scaler.update()
+        micro_step += 1
         
-        # Track
-        loss_accum += loss.item()
-        loss_count += 1
-        tokens_seen += tokens_per_step
-        dataset.tokens_seen = tokens_seen  # Update curriculum
-        step += 1
-        pbar.update(1)
-        
-        # Logging
-        if step % log_interval == 0:
-            elapsed = time.time() - start_time
-            tokens_per_sec = (tokens_seen - start_tokens) / elapsed
-            eta_sec = (max_tokens - tokens_seen) / tokens_per_sec
-            eta_str = f"{eta_sec/3600:.1f}h"
+        # Optimizer Step (only every accumulation_steps)
+        if micro_step % accumulation_steps == 0:
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             
-            avg_loss = loss_accum / loss_count
-            ppl = math.exp(min(avg_loss, 10))
-            gpu_mem = torch.cuda.memory_allocated() / 1e9
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad(set_to_none=True)
             
-            # Current curriculum phase
-            weights = get_curriculum_weights(tokens_seen)
-            phase_str = "+".join([f"{k[:3]}" for k in weights.keys()])
+            # Scheduler
+            lr = get_lr(step, warmup_steps, max_steps, learning_rate, min_lr)
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = lr
+                
+            step += 1
+            tokens_seen += x.numel() * accumulation_steps # Count all tokens in the accumulation
+            dataset.tokens_seen = tokens_seen # Update curriculum
             
-            pbar.set_postfix({
-                'loss': f'{avg_loss:.3f}',
-                'ppl': f'{ppl:.1f}',
-                'tok/s': f'{tokens_per_sec:.0f}',
-                'eta': eta_str,
-                'phase': phase_str,
-            })
+            # Logging
+            if step % log_interval == 0:
+                t1 = time.time()
+                dt = t1 - t0
+                tok_sec = (x.numel() * accumulation_steps) / (dt * accumulation_steps) # Approx
+                
+                gpu_util, gpu_mem = get_gpu_metrics()
+                
+                log(f"step={step} | tokens={tokens_seen/1e9:.2f}B | loss={loss.item():.4f} | ppl={math.exp(loss.item()):.2f} | lr={lr:.2e} | grad={get_grad_norm(model):.2f} | tok/s={tok_sec:.0f} | gpu_mem={gpu_mem:.1f}GB | gpu_util={gpu_util}% | eta={get_eta(step, max_steps, t0)} | phase={get_curriculum_weights(tokens_seen)}")
+                
+                if use_wandb and HAS_WANDB:
+                    wandb.log({
+                        "loss": loss.item(),
+                        "ppl": math.exp(loss.item()),
+                        "lr": lr,
+                        "tokens_seen": tokens_seen,
+                        "tok_sec": tok_sec,
+                        "grad_norm": get_grad_norm(model),
+                        "gpu_mem": gpu_mem,
+                        "gpu_util": gpu_util
+                    }, step=step)
+
+            # Save checkpoint
+            if step % save_interval == 0:
+                ckpt_path = output_path / f"step_{step}_tokens_{tokens_seen//1e6:.0f}M.pt"
+                torch.save({
+                    'step': step,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'tokens_seen': tokens_seen,
+                    'config': config,
+                }, ckpt_path)
+                log(f"\n  💾 Checkpoint: {ckpt_path}")
+                
+                # Rotation: Keep only last N checkpoints
+                checkpoints = sorted(output_path.glob("step_*.pt"), key=lambda p: p.stat().st_mtime)
+                if len(checkpoints) > keep_last_n:
+                    for old_ckpt in checkpoints[:-keep_last_n]:
+                        try:
+                            old_ckpt.unlink()
+                            log(f"  🗑️ Deleted old checkpoint: {old_ckpt.name}")
+                        except Exception as e:
+                            log(f"  ⚠️ Failed to delete {old_ckpt.name}: {e}")
             
-            log_msg = (
-                f"step={step:>6} | tokens={tokens_seen/1e9:.2f}B | loss={avg_loss:.4f} | ppl={ppl:.1f} | "
-                f"lr={lr:.2e} | grad={grad_norm:.2f} | tok/s={tokens_per_sec:.0f} | "
-                f"gpu={gpu_mem:.1f}GB | eta={eta_str} | phase={phase_str}"
-            )
-            log_file.write(log_msg + "\n")
-            log_file.flush()
-            
-            if use_wandb and HAS_WANDB:
-                wandb.log({
-                    "loss": avg_loss,
-                    "ppl": ppl,
-                    "lr": lr,
-                    "grad_norm": grad_norm.item() if hasattr(grad_norm, 'item') else grad_norm,
-                    "tokens_per_sec": tokens_per_sec,
-                    "tokens_B": tokens_seen / 1e9,
-                    "gpu_memory_gb": gpu_mem,
-                }, step=step)
-            
-            loss_accum = 0.0
-            loss_count = 0
-        
-        # Save checkpoint
-        if step % save_interval == 0:
-            ckpt_path = output_path / f"step_{step}_tokens_{tokens_seen//1e6:.0f}M.pt"
-            torch.save({
-                'step': step,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'tokens_seen': tokens_seen,
-                'config': config,
-            }, ckpt_path)
-            log(f"\n  💾 Checkpoint: {ckpt_path}")
-            
-            # Rotation: Keep only last N checkpoints
-            checkpoints = sorted(output_path.glob("step_*.pt"), key=lambda p: p.stat().st_mtime)
-            if len(checkpoints) > keep_last_n:
-                for old_ckpt in checkpoints[:-keep_last_n]:
-                    try:
-                        old_ckpt.unlink()
-                        log(f"  🗑️ Deleted old checkpoint: {old_ckpt.name}")
-                    except Exception as e:
-                        log(f"  ⚠️ Failed to delete {old_ckpt.name}: {e}")
-        
-        # Generate sample
-        if step % eval_interval == 0:
-            try:
-                prompts = [
-                    "Once upon a time",
-                    "def fibonacci(n):",
-                    "The derivative of x^2 is",
-                ]
-                log(f"\n  📝 Samples (step {step}, {tokens_seen/1e9:.2f}B tokens):")
-                for prompt in prompts:
-                    sample = generate_sample(model, prompt, max_tokens=40)
-                    log(f"    {sample[:150]}...")
-                log("")
-            except Exception as e:
-                log(f"  Sample generation failed: {e}")
-    
-    pbar.close()
+            # Generate sample
+            if step % eval_interval == 0:
+                model.eval()
+                log("\n📝 Sample Generation:")
+                with torch.no_grad():
+                    # Generate from a few prompts
+                    prompts = ["Once upon a time", "The capital of France is", "def fibonacci(n):"]
+                    for p in prompts:
+                        ctx = torch.tensor(dataset.enc.encode(p), dtype=torch.long, device='cuda').unsqueeze(0)
+                        out = model.generate(ctx, max_new_tokens=50, temperature=0.8)
+                        decoded = dataset.enc.decode(out[0].tolist())
+                        log(f"   Prompt: {p}\n   Output: {decoded}\n")
+                model.train()
+
+    log("Training complete!")
     
     # Final save
     final_path = output_path / "final.pt"
@@ -748,6 +753,7 @@ def main():
     
     # Training
     parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--accum-steps", type=int, default=1, help="Gradient accumulation steps")
     parser.add_argument("--seq-len", type=int, default=512)
     parser.add_argument("--lr", type=float, default=5e-4)
     parser.add_argument("--warmup", type=int, default=1000)
@@ -798,6 +804,8 @@ def main():
         output_dir=args.output_dir,
         resume=args.resume,
         use_wandb=args.wandb,
+        seed=args.seed,
+        accumulation_steps=args.accum_steps,
         compile_model=not args.no_compile,
     )
 
