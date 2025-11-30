@@ -482,7 +482,7 @@ def parse_sample(lines: list, start_idx: int) -> dict:
     """Parse a sample generation from log lines."""
     header = lines[start_idx].strip()
     text_lines = []
-    for i in range(start_idx + 1, min(start_idx + 30, len(lines))):
+    for i in range(start_idx + 1, min(start_idx + 10000, len(lines))):
         if lines[i].strip().startswith("step=") or lines[i].strip().startswith("📝"):
             break
         text_lines.append(lines[i].strip())
