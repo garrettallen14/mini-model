@@ -226,9 +226,9 @@ class TokenizedDataset(Dataset):
     
     def __init__(self, tokens_path: str, seq_len: int):
         self.seq_len = seq_len
-        self.tokens = torch.from_numpy(
-            __import__('numpy').memmap(tokens_path, dtype='int32', mode='r')
-        )
+        # Load tokens (copy to make writable and avoid warning)
+        tokens_np = np.array(np.memmap(tokens_path, dtype='int32', mode='r'))
+        self.tokens = torch.from_numpy(tokens_np)
         self.num_samples = (len(self.tokens) - 1) // seq_len
 
     def __len__(self):
