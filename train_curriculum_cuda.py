@@ -224,10 +224,10 @@ CURRICULUM_DATASETS = {
         "streaming": True,
         "tokens_estimate": 800_000_000,
     },
-    "starcoder_python": {
-        "hf_path": "bigcode/starcoderdata",
-        "data_dir": "python",
-        "text_col": "content",
+    "python_code": {
+        "hf_path": "codeparrot/github-code",
+        "name": "Python-all",
+        "text_col": "code",
         "split": "train",
         "streaming": True,
         "tokens_estimate": 900_000_000,
@@ -245,8 +245,8 @@ CURRICULUM_DATASETS = {
 CURRICULUM_PHASES = {
     # tokens_seen: {dataset: weight}
     0: {"tinystories": 0.6, "cosmopedia_stories": 0.4},                            # Phase 1: Foundation
-    1_000_000_000: {"tinystories": 0.2, "cosmopedia_stories": 0.2, "openwebmath": 0.3, "starcoder_python": 0.3},  # Phase 2: Add code/math
-    2_000_000_000: {"cosmopedia_wikihow": 0.2, "openwebmath": 0.3, "starcoder_python": 0.3, "metamathqa": 0.2},   # Phase 3: Full mix
+    1_000_000_000: {"tinystories": 0.2, "cosmopedia_stories": 0.2, "openwebmath": 0.3, "python_code": 0.3},  # Phase 2: Add code/math
+    2_000_000_000: {"cosmopedia_wikihow": 0.2, "openwebmath": 0.3, "python_code": 0.3, "metamathqa": 0.2},   # Phase 3: Full mix
 }
 
 
