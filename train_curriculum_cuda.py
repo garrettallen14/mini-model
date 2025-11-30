@@ -682,7 +682,11 @@ def train_curriculum(
                 
                 gpu_util, gpu_mem = get_gpu_metrics()
                 
-                log(f"step={step} | tokens={tokens_seen/1e9:.2f}B | loss={loss.item():.4f} | ppl={math.exp(loss.item()):.2f} | lr={lr:.2e} | grad={get_grad_norm(model):.2f} | tok/s={tok_sec:.0f} | gpu_mem={gpu_mem:.1f}GB | gpu_util={gpu_util}% | eta={get_eta(step, max_steps, t0)} | phase={get_curriculum_weights(tokens_seen)}")
+                # Format phase as short string for logs
+                phase_dict = get_curriculum_weights(tokens_seen)
+                phase_str = "+".join([k[:3] for k in phase_dict.keys()])
+                
+                log(f"step={step} | tokens={tokens_seen/1e9:.2f}B | loss={loss.item():.4f} | ppl={math.exp(loss.item()):.2f} | lr={lr:.2e} | grad={get_grad_norm(model):.2f} | tok/s={tok_sec:.0f} | gpu_mem={gpu_mem:.1f}GB | gpu_util={gpu_util}% | eta={get_eta(step, max_steps, start_time)} | phase={phase_str}"))
                 
                 if use_wandb and HAS_WANDB:
                     wandb.log({
