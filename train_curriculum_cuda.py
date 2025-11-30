@@ -225,12 +225,11 @@ CURRICULUM_DATASETS = {
         "tokens_estimate": 800_000_000,
     },
     "python_code": {
-        "hf_path": "bigcode/the-stack-smol",
-        "data_dir": "data/python",
-        "text_col": "content",
+        "hf_path": "flytech/python-codes-25k",
+        "text_col": "code",
         "split": "train",
-        "streaming": True,
-        "tokens_estimate": 200_000_000,
+        "streaming": False,
+        "tokens_estimate": 50_000_000,
     },
     "metamathqa": {
         "hf_path": "meta-math/MetaMathQA",
