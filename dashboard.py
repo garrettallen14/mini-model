@@ -48,21 +48,28 @@ HTML_TEMPLATE = '''
 <head>
     <title>🧠 Mini-Model Training</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            color: #fff;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #0f0f1a;
+            color: #e0e0e0;
             min-height: 100vh;
-            padding: 20px;
+            padding: 24px;
         }
         .container { max-width: 1400px; margin: 0 auto; }
         h1 {
             text-align: center;
-            font-size: 2.5em;
-            margin-bottom: 20px;
-            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            font-size: 1.8em;
+            font-weight: 600;
+            margin-bottom: 24px;
+            color: #fff;
+            letter-spacing: -0.5px;
+        }
+        h1 span { 
+            background: linear-gradient(135deg, #6366f1, #8b5cf6, #a855f7);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -70,76 +77,145 @@ HTML_TEMPLATE = '''
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: rgba(255,255,255,0.1);
-            padding: 15px 25px;
-            border-radius: 12px;
-            margin-bottom: 20px;
+            background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.1));
+            border: 1px solid rgba(139,92,246,0.2);
+            padding: 16px 24px;
+            border-radius: 16px;
+            margin-bottom: 24px;
         }
-        .status { display: flex; align-items: center; gap: 10px; }
+        .status { display: flex; align-items: center; gap: 12px; font-weight: 500; }
         .status-dot {
-            width: 12px; height: 12px;
+            width: 10px; height: 10px;
             border-radius: 50%;
             animation: pulse 2s infinite;
         }
-        .status-dot.running { background: #00ff88; }
-        .status-dot.stopped { background: #ff4444; animation: none; }
+        .status-dot.running { background: #22c55e; box-shadow: 0 0 12px rgba(34,197,94,0.5); }
+        .status-dot.stopped { background: #ef4444; animation: none; }
         @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(0.95); }
         }
         .metrics-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 20px;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
         }
         .metric-card {
-            background: rgba(255,255,255,0.1);
-            padding: 20px;
-            border-radius: 12px;
+            background: linear-gradient(135deg, #1a1a2e, #1e1e3a);
+            border: 1px solid rgba(255,255,255,0.08);
+            padding: 20px 16px;
+            border-radius: 16px;
             text-align: center;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.3);
         }
         .metric-value {
-            font-size: 2em;
-            font-weight: bold;
-            color: #00d9ff;
+            font-size: 1.8em;
+            font-weight: 700;
+            background: linear-gradient(135deg, #6366f1, #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-family: 'JetBrains Mono', monospace;
         }
-        .metric-label { color: #888; font-size: 0.9em; margin-top: 5px; }
+        .metric-label { 
+            color: #888; 
+            font-size: 0.75em; 
+            margin-top: 8px; 
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 500;
+        }
         .charts-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
             gap: 20px;
-            margin-bottom: 20px;
+            margin-bottom: 24px;
         }
         .chart-card {
-            background: rgba(255,255,255,0.1);
+            background: linear-gradient(135deg, #1a1a2e, #1e1e3a);
+            border: 1px solid rgba(255,255,255,0.08);
             padding: 20px;
-            border-radius: 12px;
+            border-radius: 16px;
         }
-        .chart-title { font-size: 1.1em; margin-bottom: 15px; color: #00d9ff; }
-        canvas { max-height: 250px; }
+        .chart-title { 
+            font-size: 0.9em; 
+            margin-bottom: 16px; 
+            color: #a0a0a0;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        canvas { max-height: 220px; }
         .samples-section {
-            background: rgba(255,255,255,0.1);
+            background: linear-gradient(135deg, #1a1a2e, #1e1e3a);
+            border: 1px solid rgba(255,255,255,0.08);
             padding: 20px;
-            border-radius: 12px;
+            border-radius: 16px;
         }
         .sample {
-            background: rgba(0,0,0,0.3);
-            padding: 15px;
-            border-radius: 8px;
-            margin: 10px 0;
-            font-family: monospace;
-            font-size: 0.9em;
+            background: rgba(0,0,0,0.4);
+            padding: 16px;
+            border-radius: 12px;
+            margin: 12px 0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85em;
+            line-height: 1.6;
             white-space: pre-wrap;
-            border-left: 3px solid #00ff88;
+            border-left: 3px solid #8b5cf6;
         }
-        .sample-header { color: #00d9ff; margin-bottom: 5px; font-weight: bold; }
+        .sample-header { 
+            color: #a855f7; 
+            margin-bottom: 8px; 
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+        }
         .phase-indicator {
-            background: linear-gradient(90deg, #00d9ff, #00ff88);
-            padding: 5px 15px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            padding: 6px 16px;
             border-radius: 20px;
-            font-weight: bold;
-            color: #1a1a2e;
+            font-weight: 600;
+            font-size: 0.85em;
+            color: #fff;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .eta { 
+            font-family: 'JetBrains Mono', monospace;
+            color: #888;
+            font-size: 0.9em;
+        }
+        .progress-section {
+            background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.05));
+            border: 1px solid rgba(139,92,246,0.2);
+            padding: 16px 24px;
+            border-radius: 12px;
+            margin-bottom: 24px;
+        }
+        .progress-bar {
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #6366f1, #a855f7);
+            border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+        .progress-text {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85em;
+            color: #888;
+        }
+        @media (max-width: 1200px) {
+            .metrics-grid { grid-template-columns: repeat(3, 1fr); }
         }
         @media (max-width: 768px) {
             .charts-grid { grid-template-columns: 1fr; }
@@ -149,7 +225,7 @@ HTML_TEMPLATE = '''
 </head>
 <body>
     <div class="container">
-        <h1>🧠 Mini-Model Training Dashboard</h1>
+        <h1><span>Mini-Model</span> Training Dashboard</h1>
         
         <div class="status-bar">
             <div class="status">
@@ -157,9 +233,19 @@ HTML_TEMPLATE = '''
                 <span id="statusText">Connecting...</span>
             </div>
             <div>
-                <span class="phase-indicator" id="phase">Phase 1</span>
+                <span class="phase-indicator" id="phase">PHASE 1</span>
             </div>
-            <div id="eta">ETA: --</div>
+            <div class="eta">ETA: <span id="eta">--</span></div>
+        </div>
+        
+        <div class="progress-section">
+            <div class="progress-text">
+                <span>Progress: <span id="progressPct">0%</span></span>
+                <span><span id="tokensB">0.00</span>B / 3.0B tokens</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressBar" style="width: 0%"></div>
+            </div>
         </div>
         
         <div class="metrics-grid">
@@ -180,8 +266,8 @@ HTML_TEMPLATE = '''
                 <div class="metric-label">Tokens/sec</div>
             </div>
             <div class="metric-card">
-                <div class="metric-value" id="tokensB">-</div>
-                <div class="metric-label">Tokens (B)</div>
+                <div class="metric-value" id="lr">-</div>
+                <div class="metric-label">Learning Rate</div>
             </div>
             <div class="metric-card">
                 <div class="metric-value" id="gpuMem">-</div>
@@ -228,25 +314,25 @@ HTML_TEMPLATE = '''
         
         const lossChart = new Chart(document.getElementById('lossChart'), {
             type: 'line',
-            data: { labels: [], datasets: [{ data: [], borderColor: '#00d9ff', tension: 0.1 }] },
+            data: { labels: [], datasets: [{ data: [], borderColor: '#8b5cf6', borderWidth: 2, pointRadius: 0, tension: 0.3 }] },
             options: chartOptions
         });
         
         const pplChart = new Chart(document.getElementById('pplChart'), {
             type: 'line',
-            data: { labels: [], datasets: [{ data: [], borderColor: '#00ff88', tension: 0.1 }] },
+            data: { labels: [], datasets: [{ data: [], borderColor: '#22c55e', borderWidth: 2, pointRadius: 0, tension: 0.3 }] },
             options: chartOptions
         });
         
         const tokChart = new Chart(document.getElementById('tokChart'), {
             type: 'line',
-            data: { labels: [], datasets: [{ data: [], borderColor: '#ff9f43', tension: 0.1 }] },
+            data: { labels: [], datasets: [{ data: [], borderColor: '#f59e0b', borderWidth: 2, pointRadius: 0, tension: 0.3 }] },
             options: chartOptions
         });
         
         const gradChart = new Chart(document.getElementById('gradChart'), {
             type: 'line',
-            data: { labels: [], datasets: [{ data: [], borderColor: '#ff6b6b', tension: 0.1 }] },
+            data: { labels: [], datasets: [{ data: [], borderColor: '#ef4444', borderWidth: 2, pointRadius: 0, tension: 0.3 }] },
             options: chartOptions
         });
         
@@ -260,7 +346,7 @@ HTML_TEMPLATE = '''
                 const statusText = document.getElementById('statusText');
                 if (data.status === 'running') {
                     dot.className = 'status-dot running';
-                    statusText.textContent = 'Training...';
+                    statusText.textContent = 'Training';
                 } else {
                     dot.className = 'status-dot stopped';
                     statusText.textContent = data.status;
@@ -275,10 +361,20 @@ HTML_TEMPLATE = '''
                     document.getElementById('tokS').textContent = Math.round(data.tok_s[last]).toLocaleString();
                     document.getElementById('tokensB').textContent = data.tokens_b[last].toFixed(2);
                     document.getElementById('gpuMem').textContent = data.gpu_mem[last].toFixed(1) + ' GB';
+                    
+                    // Learning rate
+                    if (data.lrs && data.lrs[last]) {
+                        document.getElementById('lr').textContent = data.lrs[last];
+                    }
+                    
+                    // Progress bar (3B tokens target)
+                    const progress = (data.tokens_b[last] / 3.0) * 100;
+                    document.getElementById('progressBar').style.width = progress.toFixed(1) + '%';
+                    document.getElementById('progressPct').textContent = progress.toFixed(1) + '%';
                 }
                 
-                document.getElementById('eta').textContent = 'ETA: ' + (data.eta || '--');
-                document.getElementById('phase').textContent = data.current_phase || 'Phase 1';
+                document.getElementById('eta').textContent = data.eta || '--';
+                document.getElementById('phase').textContent = (data.current_phase || 'phase 1').toUpperCase();
                 
                 // Update charts (show last 200 points)
                 const maxPoints = 200;
