@@ -314,14 +314,16 @@ def profile_layer_breakdown(batch_size: int = 16, seq_len: int = 512) -> Dict:
     results["embedding"] = embed_time
     print(f"    Embedding: {embed_time:.3f}ms")
     
-    # 2. Attention
-    attn = nn.MultiheadAttention(dim, num_heads, batch_first=True).cuda().half()
+    # 2. Attention (using SDPA directly for accurate timing)
     x = torch.randn(batch_size, seq_len, dim, device='cuda', dtype=torch.float16)
+    q = x.view(batch_size, seq_len, num_heads, dim // num_heads).transpose(1, 2)
+    k = q.clone()
+    v = q.clone()
     
     torch.cuda.synchronize()
     start = time.perf_counter()
     for _ in range(num_iterations):
-        out, _ = attn(x, x, x, is_causal=True)
+        out = F.scaled_dot_product_attention(q, k, v, is_causal=True)
     torch.cuda.synchronize()
     attn_time = (time.perf_counter() - start) / num_iterations * 1000
     
