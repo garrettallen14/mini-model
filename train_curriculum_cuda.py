@@ -659,7 +659,7 @@ def train_curriculum(
         # Optimizer Step (only every accumulation_steps)
         if micro_step % accumulation_steps == 0:
             scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             
             scaler.step(optimizer)
             scaler.update()
@@ -686,7 +686,7 @@ def train_curriculum(
                 phase_dict = get_curriculum_weights(tokens_seen)
                 phase_str = "+".join([k[:3] for k in phase_dict.keys()])
                 
-                log(f"step={step} | tokens={tokens_seen/1e9:.2f}B | loss={loss.item():.4f} | ppl={math.exp(loss.item()):.2f} | lr={lr:.2e} | grad={get_grad_norm(model):.2f} | tok/s={tok_sec:.0f} | gpu_mem={gpu_mem:.1f}GB | gpu_util={gpu_util}% | eta={get_eta(step, max_steps, start_time)} | phase={phase_str}"))
+                log(f"step={step} | tokens={tokens_seen/1e9:.2f}B | loss={loss.item():.4f} | ppl={math.exp(loss.item()):.2f} | lr={lr:.2e} | grad={grad_norm:.2f} | tok/s={tok_sec:.0f} | gpu_mem={gpu_mem:.1f}GB | gpu_util={gpu_util}% | eta={get_eta(step, max_steps, start_time)} | phase={phase_str}"))
                 
                 if use_wandb and HAS_WANDB:
                     wandb.log({
@@ -695,7 +695,7 @@ def train_curriculum(
                         "lr": lr,
                         "tokens_seen": tokens_seen,
                         "tok_sec": tok_sec,
-                        "grad_norm": get_grad_norm(model),
+                        "grad_norm": grad_norm.item() if hasattr(grad_norm, 'item') else grad_norm,
                         "gpu_mem": gpu_mem,
                         "gpu_util": gpu_util
                     }, step=step)
