@@ -500,6 +500,7 @@ def train_curriculum(
     log_interval: int = 100,
     eval_interval: int = 5000,
     save_interval: int = 50_000,
+    keep_last_n: int = 3,  # Keep only last N checkpoints to save disk space
     output_dir: str = "checkpoints",
     resume: Optional[str] = None,
     use_wandb: bool = False,
@@ -684,6 +685,16 @@ def train_curriculum(
                 'config': config,
             }, ckpt_path)
             log(f"\n  💾 Checkpoint: {ckpt_path}")
+            
+            # Rotation: Keep only last N checkpoints
+            checkpoints = sorted(output_path.glob("step_*.pt"), key=lambda p: p.stat().st_mtime)
+            if len(checkpoints) > keep_last_n:
+                for old_ckpt in checkpoints[:-keep_last_n]:
+                    try:
+                        old_ckpt.unlink()
+                        log(f"  🗑️ Deleted old checkpoint: {old_ckpt.name}")
+                    except Exception as e:
+                        log(f"  ⚠️ Failed to delete {old_ckpt.name}: {e}")
         
         # Generate sample
         if step % eval_interval == 0:
@@ -748,6 +759,7 @@ def main():
     parser.add_argument("--log-interval", type=int, default=100)
     parser.add_argument("--eval-interval", type=int, default=5000)
     parser.add_argument("--save-interval", type=int, default=50000)
+    parser.add_argument("--keep-last-n", type=int, default=3, help="Number of checkpoints to keep")
     parser.add_argument("--output-dir", default="checkpoints")
     parser.add_argument("--wandb", action="store_true")
     
@@ -782,6 +794,7 @@ def main():
         log_interval=args.log_interval,
         eval_interval=args.eval_interval,
         save_interval=args.save_interval,
+        keep_last_n=args.keep_last_n,
         output_dir=args.output_dir,
         resume=args.resume,
         use_wandb=args.wandb,

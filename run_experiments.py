@@ -33,7 +33,7 @@ def run_experiment(config: Dict) -> Dict:
     print(f"\n🧪 Running: BS={config['batch_size']}, LR={config['lr']}, SeqLen={config['seq_len']} ({config['note']})")
     
     cmd = [
-        PYTHON_EXEC, SCRIPT,
+        PYTHON_EXEC, "-u", SCRIPT,
         "--size", MODEL_SIZE,
         "--batch-size", str(config['batch_size']),
         "--seq-len", str(config['seq_len']),
