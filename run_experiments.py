@@ -39,7 +39,7 @@ def run_experiment(config: Dict) -> Dict:
         "--seq-len", str(config['seq_len']),
         "--lr", str(config['lr']),
         "--max-tokens", str(MAX_TOKENS),
-        "--log-interval", "10",
+        "--log-interval", "1", # Log every step for short runs
         "--save-interval", "100000", # Don't save
         "--eval-interval", "100000", # Don't eval
         "--output-dir", "experiments/temp",
@@ -72,6 +72,7 @@ def run_experiment(config: Dict) -> Dict:
         return {**config, "status": "Success", "tok_sec": avg_tok_sec, "loss": final_loss}
     else:
         print("⚠️  Finished but couldn't parse metrics.")
+        print(f"   Output snippet: {output[-500:] if output else 'No output'}")
         return {**config, "status": "Unknown", "tok_sec": 0, "loss": 0}
 
 def main():
