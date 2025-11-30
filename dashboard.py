@@ -273,7 +273,7 @@ HTML_TEMPLATE = '''
         <div class="progress-section">
             <div class="progress-header">
                 <span class="progress-label">Training Progress</span>
-                <span class="progress-value"><span id="tokensB">0.00</span>B / 3.0B tokens (<span id="progressPct">0.0</span>%)</span>
+                <span class="progress-value"><span id="tokensM">0</span>M tokens (<span id="progressPct">0.0</span>%) → 3B target</span>
             </div>
             <div class="progress-bar">
                 <div class="progress-fill" id="progressBar" style="width: 0%"></div>
@@ -396,24 +396,37 @@ HTML_TEMPLATE = '''
                 // Update metrics
                 if (data.steps.length > 0) {
                     const last = data.steps.length - 1;
-                    document.getElementById('step').textContent = data.steps[last].toLocaleString();
+                    const step = data.steps[last];
+                    document.getElementById('step').textContent = step.toLocaleString();
                     document.getElementById('loss').textContent = data.losses[last].toFixed(3);
                     document.getElementById('ppl').textContent = data.ppls[last].toFixed(1);
                     document.getElementById('tokS').textContent = Math.round(data.tok_s[last]).toLocaleString();
-                    document.getElementById('tokensB').textContent = data.tokens_b[last].toFixed(2);
                     document.getElementById('gpuMem').textContent = data.gpu_mem[last].toFixed(1) + ' GB';
                     
                     if (data.lrs && data.lrs[last]) {
                         document.getElementById('lr').textContent = data.lrs[last];
                     }
                     
-                    const progress = (data.tokens_b[last] / 3.0) * 100;
+                    // Calculate tokens from step (batch=64 * seq=512 = 32768 tokens/step)
+                    const tokens = step * 32768;
+                    const tokensM = Math.round(tokens / 1e6);
+                    document.getElementById('tokensM').textContent = tokensM.toLocaleString();
+                    
+                    const progress = (tokens / 3e9) * 100;
                     document.getElementById('progressBar').style.width = Math.min(progress, 100).toFixed(1) + '%';
                     document.getElementById('progressPct').textContent = progress.toFixed(2);
                 }
                 
                 document.getElementById('eta').textContent = data.eta || '--';
-                document.getElementById('phase').textContent = (data.current_phase || 'phase 1').toUpperCase();
+                
+                // Format phase nicely
+                const phase = data.current_phase || 'phase 1';
+                const phaseMap = {
+                    'tin+cos': 'Stories + Cosmo',
+                    'tin+cos+ope+pyt': 'Stories + Math + Code', 
+                    'cos+ope+pyt+met': 'Full Curriculum'
+                };
+                document.getElementById('phase').textContent = phaseMap[phase] || phase.toUpperCase();
                 
                 // Update Plotly charts
                 if (data.steps.length > 0) {
