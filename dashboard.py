@@ -244,20 +244,6 @@ HTML_TEMPLATE = '''
             text-transform: uppercase;
             letter-spacing: 0.05em;
         }
-        .prompt-highlight {
-            display: block;
-            margin-top: 16px;
-            padding-top: 12px;
-            border-top: 1px dashed #e5e5e5;
-            font-weight: 600;
-            color: #2563eb; /* Blue color for prompts */
-        }
-        /* Don't add a border for the very first one */
-        .prompt-highlight:first-child {
-            margin-top: 0;
-            padding-top: 0;
-            border-top: none;
-        }
         
         /* Responsive */
         @media (max-width: 1200px) {
@@ -452,36 +438,9 @@ HTML_TEMPLATE = '''
                 
                 // Update samples
                 if (data.samples && data.samples.length > 0) {
-                    const samplesDiv = document.getElementById('samples');
-                    
-                    // We only want the last 3 sample blocks
-                    const recentSamples = data.samples.slice(-3).reverse(); 
-
-                    samplesDiv.innerHTML = recentSamples.map(s => {
-                        let formattedText = s.text;
-
-                        // 1. Array of prompts we want to highlight/separate
-                        // Note: We use \\ to escape parenthesis for Regex
-                        const prompts = [
-                            "Once upon a time",
-                            "def fibonacci\\(n\\):",
-                            "The derivative of x\\^2 is"
-                        ];
-
-                        // 2. Loop through prompts and wrap them in HTML
-                        prompts.forEach(p => {
-                            const regex = new RegExp(`(${p})`, 'g');
-                            // Replace the prompt text with a styled span
-                            formattedText = formattedText.replace(regex, '<span class="prompt-highlight">$1</span>');
-                        });
-
-                        return `
-                            <div class="sample">
-                                <div class="sample-header">${s.header}</div>
-                                <div>${formattedText}</div>
-                            </div>
-                        `;
-                    }).join('');
+                    document.getElementById('samples').innerHTML = data.samples.slice(-3).map(s => 
+                        `<div class="sample"><div class="sample-header">${s.header}</div>${s.text}</div>`
+                    ).join('');
                 }
                 
             } catch (e) {
