@@ -225,12 +225,12 @@ CURRICULUM_DATASETS = {
         "tokens_estimate": 800_000_000,
     },
     "python_code": {
-        "hf_path": "codeparrot/github-code",
-        "name": "Python-all",
-        "text_col": "code",
+        "hf_path": "bigcode/the-stack-smol",
+        "data_dir": "data/python",
+        "text_col": "content",
         "split": "train",
         "streaming": True,
-        "tokens_estimate": 900_000_000,
+        "tokens_estimate": 200_000_000,
     },
     "metamathqa": {
         "hf_path": "meta-math/MetaMathQA",

@@ -16,3 +16,6 @@ accelerate>=0.25.0  # For multi-GPU if needed
 # Evaluation
 numpy>=1.24.0
 scipy>=1.11.0
+
+# Dashboard
+flask>=3.0.0
